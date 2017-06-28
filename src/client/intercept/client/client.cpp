@@ -6,6 +6,7 @@ using namespace intercept::types;
 namespace intercept {
     namespace client {
         client_functions host::functions;
+        r_string host::module_name;
 
         registered_sqf_function host::registerFunction(std::string_view name, std::string_view description, WrapperFunctionBinary function_, GameDataType return_arg_type, GameDataType left_arg_type, GameDataType right_arg_type) {
             return functions.register_sqf_function(name, description, function_, return_arg_type, left_arg_type, right_arg_type);
@@ -21,9 +22,25 @@ namespace intercept {
             return functions.register_sqf_type(name, localizedName, description, typeName, cf);
         }
 
+        register_plugin_interface_result host::register_plugin_interface(std::string_view name_, uint32_t api_version_, void* interface_class_) {
+            if (!interface_class_) return register_plugin_interface_result::invalid_interface_class;
+            auto result = functions.register_plugin_interface(module_name, name_, api_version_, interface_class_);
+            return result;
+        }
+        std::pair<r_string, auto_array<uint32_t>> host::list_plugin_interfaces(std::string_view name_) {
+            return functions.list_plugin_interfaces(name_);
+        }
+        std::optional<void*> host::request_plugin_interface(std::string_view name_, uint32_t api_version_) {
+            auto result = functions.request_plugin_interface(module_name,name_, api_version_);
+            if (result)
+                return result;
+            return {};
+        }
+
         // Using __cdecl to prevent name mangling and provide better backwards compatibility
-        void CDECL assign_functions(const struct client_functions funcs) {
+        void CDECL assign_functions(const struct client_functions funcs, r_string module_name) {
             host::functions = funcs;
+            host::module_name = module_name;
 
             __sqf::__initialize();
 
@@ -104,7 +121,10 @@ namespace intercept {
 
 
             host::functions.get_type_structure("GV", type_def, data_type_def);
-            game_value::__vptr_def = type_def;
+            intercept::types::__internal::set_game_value_vtable(type_def);
+
+            host::functions.get_type_structure("SQF_SCRIPT_TYPE", type_def, data_type_def);
+            sqf_script_type::type_def = type_def;
         }
 
         void CDECL handle_unload() {
