@@ -36,6 +36,7 @@ namespace intercept {
         functions.request_plugin_interface = [](r_string module_name_, std::string_view name_, uint32_t api_version_) {
             return extensions::get().request_plugin_interface(module_name_, name_, api_version_);
         };
+        functions.get_pbo_files_list = client_function_defs::get_pbo_files_list;
 
         std::string arg_line = _searcher.get_command_line();
         std::transform(arg_line.begin(), arg_line.end(), arg_line.begin(), ::tolower);
@@ -230,9 +231,9 @@ namespace intercept {
             return false;
         }
 
-        _modules.erase(path_);
+        LOG(INFO) << "Unload complete [" << path_ << "]"; //path_ sometimes becomes corrupted if placed after the erase
 
-        LOG(INFO) << "Unload complete [" << path_ << "]";
+        _modules.erase(path_);
 
         return true;
     }
