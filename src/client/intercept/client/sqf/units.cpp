@@ -1,4 +1,4 @@
-#include "units.hpp"
+﻿#include "units.hpp"
 #include "client/pointers.hpp"
 #include "common_helpers.hpp"
 
@@ -377,8 +377,14 @@ namespace intercept {
             return __helpers::__convert_to_objects_vector(host::functions.invoke_raw_unary(__sqf::unary__groupselectedunits__object__ret__array, unit_));
         }
 
-        sqf_return_string_list squad_params(const object &unit_) {
-            return __helpers::__convert_to_strings_vector(host::functions.invoke_raw_unary(__sqf::unary__squadparams__object__ret__array, unit_));
+        std::vector<sqf_return_string_list> squad_params(const object &unit_) {
+            std::vector<sqf_return_string_list> _temp;
+            game_value _engine_result = host::functions.invoke_raw_unary(__sqf::unary__squadparams__object__ret__array, unit_);
+            _temp.reserve(_engine_result.size());
+            for (auto &gv : _engine_result.to_array()) {
+                _temp.push_back(std::move(__helpers::__convert_to_strings_vector(gv)));
+            }
+            return _temp;
         }
 
         bool unit_ready(const object &unit_) {
@@ -770,11 +776,11 @@ namespace intercept {
         void assign_team(const object &value0_, team_color team_) {
             game_value team;
             switch (team_) {
-                case team_color::MAIN: team = "MAIN"_sv; break;
-                case team_color::RED: team = "RED"_sv; break;
-                case team_color::GREEN: team = "GREEN"_sv; break;
-                case team_color::BLUE: team = "BLUE"_sv; break;
-                case team_color::YELLOW: team = "YELLOW"_sv; break;
+                case team_color::MAIN: team = "MAIN"sv; break;
+                case team_color::RED: team = "RED"sv; break;
+                case team_color::GREEN: team = "GREEN"sv; break;
+                case team_color::BLUE: team = "BLUE"sv; break;
+                case team_color::YELLOW: team = "YELLOW"sv; break;
                 default: return;
             }
             host::functions.invoke_raw_binary(__sqf::binary__assignteam__object__string__ret__nothing, value0_, std::move(team));

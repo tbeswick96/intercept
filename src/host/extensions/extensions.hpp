@@ -142,7 +142,7 @@ namespace intercept {
             plugin_interface_identifier(r_string name_, r_string module_name_, uint32_t api_version_) : name(name_), module_name(module_name_), api_version(api_version_) {}
 
             bool operator<(const plugin_interface_identifier &other) const {
-                return name < other.name && api_version < other.api_version;
+                return name < other.name || (name == other.name && api_version < other.api_version);
             }
             bool operator==(const plugin_interface_identifier &other) const {
                 return api_version == other.api_version && name == other.name;
@@ -183,7 +183,12 @@ namespace intercept {
             /*!
             @brief The path of the loaded module
             */
-            std::string path;
+        #ifdef __linux
+            std::string
+        #else
+            std::wstring
+        #endif
+            path;
 
             /*!
             @brief A intercept::module::functions struct containing pointers to
@@ -240,7 +245,7 @@ namespace intercept {
         This handles all the initialization of a client plugin, and storing the
         results in the map of loaded clients.
         */
-        bool load(const std::string &path_);
+        bool load(const std::string &path_, std::optional<std::string> certPath);
 
         void reload_all();
 
@@ -249,7 +254,7 @@ namespace intercept {
 
         Unloads and removes a client plugin.
         */
-        bool unload(const std::string &path_);
+        bool unload(std::string path_); //the string copy is intentional
 
         /*!
         @brief Returns a list of all loaded modules to SQF.

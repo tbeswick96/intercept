@@ -1,6 +1,8 @@
-﻿#include "extensions.hpp"
+#include "extensions.hpp"
 #include "controller.hpp"
 #include "export.hpp"
+#include "invoker.hpp"
+#include "signing.hpp"
 #ifdef __linux__
 #include <dlfcn.h>
 #include <link.h>
@@ -40,7 +42,7 @@ namespace intercept {
 
         std::string arg_line = _searcher.get_command_line();
         std::transform(arg_line.begin(), arg_line.end(), arg_line.begin(), ::tolower);
-        if (arg_line.find("-intreloadall") != std::string::npos) {
+        if (arg_line.find("-intreloadall"sv) != std::string::npos) {
             do_reload = true;
         } else {
             do_reload = false;
@@ -54,36 +56,51 @@ namespace intercept {
     }
 
     void extensions::attach_controller() {
-        controller::get().add("list_extensions", std::bind(&extensions::list, this, std::placeholders::_1, std::placeholders::_2));
-        controller::get().add("load_extension", [this](const arguments& args_, std::string&) { return load(args_.as_string(0)); });
-        controller::get().add("unload_extension", [this](const arguments& args_, std::string&) { return unload(args_.as_string(0)); });
+        controller::get().add("list_extensions"sv, std::bind(&extensions::list, this, std::placeholders::_1, std::placeholders::_2));
+        controller::get().add("load_extension"sv, [this](const arguments& args_, std::string&) { return load(args_.as_string(0), args_.size() > 1 ? args_.as_string(1) : ""); });
+        controller::get().add("unload_extension"sv, [this](const arguments& args_, std::string&) { return unload(args_.as_string(0)); });
     }
 
     void extensions::reload_all() {
         if (!do_reload)
             return;
-        LOG(INFO) << "Doing client DLL reload.";
+        LOG(INFO) << "Doing client DLL reload."sv;
         auto current_modules = _modules;
         for (auto module : current_modules) {
             unload(module.first);
-            load(module.first);
+            load(module.first,{});
         }
     }
 
-    bool extensions::load(const std::string& path_) {
-        std::string path = path_;
-        LOG(INFO) << "Load requested [" << path_ << "]";
+    bool extensions::load(const std::string& path_, std::optional<std::string> certPath) {
 
-        if (_modules.find(path) != _modules.end()) {
-            LOG(ERROR) << "Module already loaded [" << path << "]";
+    #ifndef __linux__
+        using string_type = std::wstring;
+        using string_view_type = std::wstring_view;
+        string_view_type bad_chars = L".\\/:?\"<>|"sv;
+        int length = MultiByteToWideChar(CP_UTF8, 0, path_.data(), path_.length(), 0, 0);
+        string_type path;
+        path.resize(length);
+        MultiByteToWideChar(CP_UTF8, 0, path_.data(), path_.length(), path.data(), length);
+    #else
+        using string_type = std::string;
+        using string_view_type = std::string_view;
+        string_type path = path_;
+        string_view_type bad_chars = ".\\/:?\"<>|"sv;
+    #endif
+
+        LOG(INFO) << "Load requested ["sv << path_ << "]"sv;
+
+        if (_modules.find(path_) != _modules.end()) {
+            LOG(ERROR) << "Module already loaded ["sv << path << "]"sv;
             return true;
         }
 
-        std::string bad_chars = ".\\/:?\"<>|";
+        //Filter out bad chars
         for (auto it = path.begin(); it < path.end(); ++it) {
             bool found = bad_chars.find(*it) != std::string::npos;
             if (found) {
-                LOG(ERROR) << "Client plugin: " << path << " contains illegal characters in its name.";
+                LOG(ERROR) << "Client plugin: "sv << path << " contains illegal characters in its name."sv;
                 return false;
             }
         }
@@ -92,25 +109,46 @@ namespace intercept {
         if (!full_path)
             return false;
 
+    #ifndef __linux__
+        //certificate check
+        if (certPath && certPath->length() != 0) {
+            r_string certData = invoker::get().invoke_raw("loadfile", *certPath);
+            if (certData.capacity() != 0) {
+                cert::signing sign_checker(*full_path, certData);
+                if (!sign_checker.verify()) {
+                    LOG(ERROR) << "PluginLoad failed, code signing certificate invalid "sv << " [" << *full_path << "]";
+                }
+            }
+        }
+    #endif
+
+
+
+
+
+
+
+
+
 #ifndef __linux__  //Lazyness
         if (do_reload) {
-            LOG(INFO) << "Loading plugin from temp file.";
-            char tmpPath[MAX_PATH + 1], buffer[MAX_PATH + 1];
+            LOG(INFO) << "Loading plugin from temp file."sv;
+            wchar_t tmpPath[MAX_PATH + 1], buffer[MAX_PATH + 1];
 
-            if (!GetTempPathA(MAX_PATH, tmpPath)) {
-                LOG(ERROR) << "GetTempPath() failed, e=" << GetLastError();
+            if (!GetTempPathW(MAX_PATH, tmpPath)) {
+                LOG(ERROR) << "GetTempPath() failed, e="sv << GetLastError();
                 return false;
             }
-            if (!GetTempFileNameA(tmpPath, "intercept_temp", 0, buffer)) {
-                LOG(ERROR) << "GetTempFileName() failed, e=" << GetLastError();
+            if (!GetTempFileNameW(tmpPath, L"intercept_temp", 0, buffer)) {
+                LOG(ERROR) << "GetTempFileName() failed, e="sv << GetLastError();
                 return false;
             }
-            std::string temp_filename = buffer;
-            LOG(INFO) << "Temp file: " << temp_filename;
-            if (!CopyFileA(full_path->c_str(), temp_filename.c_str(), FALSE)) {
-                DeleteFile(temp_filename.c_str());
-                if (!CopyFileA(full_path->c_str(), temp_filename.c_str(), FALSE)) {
-                    LOG(ERROR) << "CopyFile() , e=" << GetLastError();
+            std::wstring temp_filename = buffer;
+            LOG(INFO) << "Temp file: "sv << temp_filename;
+            if (!CopyFileW(full_path->c_str(), temp_filename.c_str(), FALSE)) {
+                DeleteFileW(temp_filename.c_str());
+                if (!CopyFileW(full_path->c_str(), temp_filename.c_str(), FALSE)) {
+                    LOG(ERROR) << "CopyFile() , e="sv << GetLastError();
                     return false;
                 }
             }
@@ -121,18 +159,27 @@ namespace intercept {
 #ifdef __linux__
         auto dllHandle = dlopen(full_path->c_str(), RTLD_NOW | RTLD_GLOBAL);
         if (!dllHandle) {
-            LOG(ERROR) << "LoadLibrary() failed, e=" << dlerror() << " [" << *full_path << "]";
+            LOG(ERROR) << "LoadLibrary() failed, e="sv << dlerror() << " [" << *full_path << "]";
             return false;
         }
 #else
-        auto dllHandle = LoadLibrary(full_path->c_str());
+        auto dllHandle = LoadLibraryW(full_path->c_str());
         if (!dllHandle) {
-            LOG(ERROR) << "LoadLibrary() failed, e=" << GetLastError() << " [" << *full_path << "]";
+            LOG(ERROR) << "LoadLibrary() failed, e="sv << GetLastError() << " [" << *full_path << "]";
             return false;
         }
 #endif
 
-        auto new_module = module::entry(*full_path, dllHandle);
+    #ifndef __linux__
+        length = WideCharToMultiByte(CP_UTF8, 0, (*full_path).data(), (*full_path).length(), nullptr, 0, nullptr, nullptr);
+        std::string utf8_name;
+        utf8_name.resize(length);
+        WideCharToMultiByte(CP_UTF8, 0, (*full_path).data(), (*full_path).length(), utf8_name.data(), length, nullptr, nullptr);
+    #else
+        string_type utf8_name = *full_path;
+    #endif
+
+        auto new_module = module::entry(utf8_name, dllHandle);
 
 #ifdef __linux__
 #define GET_PROC_ADDR dlsym
@@ -146,17 +193,17 @@ namespace intercept {
         //First verify that this is a valid Plugin before we initialize the rest.
 
         if (!new_module.functions.api_version) {
-            LOG(ERROR) << "Module " << path << " failed to define the api_version function.";
+            LOG(ERROR) << "Module "sv << path << " failed to define the api_version function."sv;
             return false;
         }
 
         if (new_module.functions.api_version() < PLUGIN_MIN_API_VERSION) {
-            LOG(ERROR) << "Module " << path << " has invalid API Version. Has: " << new_module.functions.api_version() << " Need: " << PLUGIN_MIN_API_VERSION;
+            LOG(ERROR) << "Module "sv << path << " has invalid API Version. Has: "sv << new_module.functions.api_version() << " Need: "sv << PLUGIN_MIN_API_VERSION;
             return false;
         }
 
         if (!new_module.functions.assign_functions) {
-            LOG(ERROR) << "Module " << path << " failed to define the assign_functions function.";
+            LOG(ERROR) << "Module "sv << path << " failed to define the assign_functions function."sv;
             return false;
         }
 
@@ -168,29 +215,30 @@ namespace intercept {
         new_module.functions.post_init = reinterpret_cast<module::post_init_func>(GET_PROC_ADDR(dllHandle, "post_init"));
         new_module.functions.pre_init = reinterpret_cast<module::pre_init_func>(GET_PROC_ADDR(dllHandle, "pre_init"));
         new_module.functions.pre_start = reinterpret_cast<module::pre_start_func>(GET_PROC_ADDR(dllHandle, "pre_start"));
-        new_module.functions.register_interfaces = reinterpret_cast<module::pre_start_func>(GET_PROC_ADDR(dllHandle, "register_interfaces"));
+        new_module.functions.register_interfaces = reinterpret_cast<module::register_interfaces_func>(GET_PROC_ADDR(dllHandle, "register_interfaces"));
         new_module.functions.client_eventhandler = reinterpret_cast<module::client_eventhandler_func>(GET_PROC_ADDR(dllHandle, "client_eventhandler"));
         new_module.functions.mission_stopped = reinterpret_cast<module::mission_stopped_func>(GET_PROC_ADDR(dllHandle, "mission_stopped"));
 
 #define EH_PROC_DEF(name, ...) new_module.eventhandlers.name = (module::name##_func)GET_PROC_ADDR(dllHandle, #name);
         EH_LIST(EH_PROC_DEF)
 
+
         new_module.functions.assign_functions(functions, r_string(new_module.name));
         new_module.path = *full_path;
-        _modules[path] = new_module;
+        _modules[path_] = new_module;
 
         if (new_module.functions.register_interfaces)
             new_module.functions.register_interfaces();
 
-        LOG(INFO) << "Load completed [" << path << "]";
+        LOG(INFO) << "Load completed ["sv << path << "]"sv;
         return false;
     }
 
-    bool extensions::unload(const std::string& path_) {
-        LOG(INFO) << "Unload requested [" << path_ << "]";
+    bool extensions::unload(std::string path_) {
+        LOG(INFO) << "Unload requested ["sv << path_ << "]"sv;
         auto module = _modules.find(path_);
         if (module == _modules.end()) {
-            LOG(INFO) << "Unload failed, module not loaded [" << path_ << "]";
+            LOG(INFO) << "Unload failed, module not loaded ["sv << path_ << "]"sv;
             return true;
         }
 
@@ -223,15 +271,15 @@ namespace intercept {
 
 #ifdef __linux
         if (dlclose(module->second.handle)) {  //returms 0 on success
-            LOG(INFO) << "dlclose() failed during unload, e=" << dlerror();
+            LOG(INFO) << "dlclose() failed during unload, e="sv << dlerror();
 #else
         if (!FreeLibrary(module->second.handle)) {
-            LOG(INFO) << "FreeLibrary() failed during unload, e=" << GetLastError();
+            LOG(INFO) << "FreeLibrary() failed during unload, e="sv << GetLastError();
 #endif
             return false;
         }
 
-        LOG(INFO) << "Unload complete [" << path_ << "]"; //path_ sometimes becomes corrupted if placed after the erase
+        LOG(INFO) << "Unload complete ["sv << path_ << "]"sv; //path_ sometimes becomes corrupted if placed after the erase
 
         _modules.erase(path_);
 
@@ -239,7 +287,7 @@ namespace intercept {
     }
 
     bool extensions::list(const arguments&, std::string& result) {
-        LOG(INFO) << "Listing loaded modules";
+        LOG(INFO) << "Listing loaded modules"sv;
         std::string res;
 
         for (auto& kv : _modules) {

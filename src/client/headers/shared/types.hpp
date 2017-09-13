@@ -12,13 +12,15 @@
 #include <string_view>
 #include <string.h>
 #include <algorithm>
+#include <memory>
 
 //GNUC somehow can't do it if it's inside shared.hpp.
 #ifdef __GNUC__
 #define CDECL __attribute__ ((__cdecl__))
 #endif
+using namespace std::literals::string_view_literals;
 
-constexpr std::string_view operator ""_sv(char const* str, std::size_t len) noexcept {
+[[deprecated("use sv instead")]] constexpr std::string_view operator ""_sv(char const* str, std::size_t len) noexcept {
     return { str, len };
 };
 
@@ -424,6 +426,17 @@ namespace intercept {
                 return _os;
             }
 
+            friend std::istream& operator >> (std::istream& _in, r_string& _t){
+                char inp;
+                std::string tmp;
+                while (_in.get(inp)) {
+                    if (inp == 0) break;
+                    tmp.push_back(inp);
+                }
+                _t._ref = create(tmp.data(), tmp.length());
+                return _in;
+            }
+
             bool compare_case_sensitive(const char *other) const {
             #ifdef __GNUC__
                 return !std::equal(_ref->cbegin(), _ref->cend(),
@@ -671,6 +684,7 @@ namespace intercept {
                 #ifdef __GNUC__
                     memmove(newData, base::_data, base::_n * sizeof(Type));
                 #else
+                    //std::uninitialized_move(begin(), end(), newData); //This might be cleaner. But still causes a move construct call where memmove just moves bytes.
                     memmove_s(newData, size * sizeof(Type), base::_data, base::_n * sizeof(Type));
                 #endif
                     rv_allocator<Type>::deallocate(base::_data);
@@ -1353,7 +1367,7 @@ namespace intercept {
         protected:
             virtual bool get_as_bool() const { return false; }
             virtual float get_as_number() const { return 0.f; }
-            virtual r_string get_as_string() const { return r_string(); } //Only usable on String and Code! Use to_string instead!
+            virtual const r_string& get_as_string() const { static r_string dummy; dummy.clear(); return dummy; } ///Only usable on String and Code! Use to_string instead!
             virtual const auto_array<game_value>& get_as_const_array() const { static auto_array<game_value> dummy; dummy.clear(); return dummy; } //Why would you ever need this?
             virtual auto_array<game_value> &get_as_array() { static auto_array<game_value> dummy; dummy.clear(); return dummy; }
             virtual game_data *copy() const { return nullptr; }
@@ -1361,10 +1375,12 @@ namespace intercept {
             virtual bool get_readonly() const { return false; }
             virtual bool get_final() const { return false; }
             virtual void set_final(bool) {}; //Only on GameDataCode AFAIK
+        public: 
             virtual r_string to_string() const { return r_string(); }
             virtual bool equals(const game_data *) const { return false; };
             virtual const char *type_as_string() const { return "unknown"; }
             virtual bool is_nil() const { return false; }
+        private:
             virtual void placeholder() const {};
             virtual bool can_serialize() { return false; }
 
@@ -1375,7 +1391,7 @@ namespace intercept {
             virtual serialization_return serialize(param_archive& ar) {
                 if (ar._isExporting) {
                     sqf_script_type _type = type();
-                    ar.serialize(r_string("type"_sv), _type, 1);
+                    ar.serialize(r_string("type"sv), _type, 1);
                 }
 
                 return serialization_return::no_error;
@@ -1391,6 +1407,15 @@ namespace intercept {
             uintptr_t get_secondary_vtable() const {
                 return *reinterpret_cast<const uintptr_t*>(static_cast<const __internal::I_debug_value*>(this));
             }
+        };
+
+        class game_value_conversion_error : public std::runtime_error {
+        public:
+            explicit game_value_conversion_error(const std::string& _Message)
+                : runtime_error(_Message) {}
+
+            explicit game_value_conversion_error(const char* _Message)
+                : runtime_error(_Message) {}
         };
 
         class game_value : public serialize_class {
@@ -1455,9 +1480,25 @@ namespace intercept {
             operator vector3() const;
             operator vector2() const;
 
+            /**
+            * \brief tries to convert the game_value to an array if possible
+            * \throws game_value_conversion_error {if game_value is not an array}
+            */
             auto_array<game_value>& to_array();
+            /**
+             * \brief tries to convert the game_value to an array if possible
+             * \throw game_value_conversion_error {if game_value is not an array}
+             */
             const auto_array<game_value>& to_array() const;
+            /**
+            * \brief tries to convert the game_value to an array if possible and return the element at given index.
+            * \throw game_value_conversion_error {if game_value is not an array}
+            */
             game_value& operator [](size_t i_);
+            /**
+            * \brief tries to convert the game_value to an array if possible and return the element at given index.
+            * \throw game_value_conversion_error {if game_value is not an array}
+            */
             game_value operator [](size_t i_) const;
 
             uintptr_t type() const;//#TODO return GameDataType
@@ -2098,5 +2139,8 @@ namespace std {
         }
     };
 }
+
+
+
 
 
