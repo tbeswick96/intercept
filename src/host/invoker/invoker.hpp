@@ -66,7 +66,7 @@ namespace intercept {
         return type, or passed to a complex argument constructor such as `object`
         or `group`, etc.
         */
-        static game_value invoke_raw_nolock(const nular_function function_);
+        static game_value invoke_raw_nolock(const nular_function function_) noexcept;
         game_value invoke_raw(std::string_view function_name_) const;
         //!@}
 
@@ -81,7 +81,7 @@ namespace intercept {
         return type, or passed to a complex argument constructor such as `object`
         or `group`, etc.
         */
-        static game_value invoke_raw_nolock(const unary_function function_, const game_value &right_);
+        static game_value invoke_raw_nolock(const unary_function function_, const game_value &right_) noexcept;
         game_value invoke_raw(std::string_view function_name_, const game_value &right_) const;
         game_value invoke_raw(std::string_view function_name_, const game_value &right_, const std::string &right_type_) const;
         //!@}
@@ -97,7 +97,7 @@ namespace intercept {
         return type, or passed to a complex argument constructor such as `object`
         or `group`, etc.
         */
-        static game_value invoke_raw_nolock(const binary_function function_, const game_value &left_, const game_value &right_);
+        static game_value invoke_raw_nolock(const binary_function function_, const game_value &left_, const game_value &right_) noexcept;
         game_value invoke_raw(std::string_view function_name_, const game_value &left_, const game_value &right_) const;
         game_value invoke_raw(std::string_view function_name_, const game_value &left_, const std::string &left_type_, const game_value &right_, const std::string &right_type_) const;
         //!@}
@@ -171,14 +171,14 @@ namespace intercept {
         /*!
         @brief Consume an event from the RV Engine and dispatches it.
         */
-        bool rv_event(const std::string& event_name_, game_value& params_);
+        bool rv_event(const std::string& event_name_, game_value_parameter params_);
         
 
-        static game_value _intercept_signal(game_value left_arg_, game_value right_arg_);
+        static game_value _intercept_signal(game_value_parameter left_arg_, game_value_parameter right_arg_);
         /*!
         @brief Get signal from sqf code dispatch it.
         */
-        bool signal(const std::string& extension_name, const std::string& signal_name, game_value args);
+        bool signal(const std::string& extension_name, const std::string& signal_name, game_value_parameter args);
         //!@}
 
         /*!
@@ -192,7 +192,7 @@ namespace intercept {
 
         @return Returns `true` if it was bound, `false` if it was not.
         */
-        bool add_eventhandler(std::string_view name_, std::function<void(game_value &)> func_);
+        bool add_eventhandler(std::string_view name_, std::function<void(game_value_parameter)> func_);
 
         /*!
         @brief A map of vtable ptrs to string stypes.
@@ -226,7 +226,7 @@ namespace intercept {
         /*!
         @brief The interceptEvent SQF Function that's used to get events with arguments
         */
-        static game_value _intercept_event(game_value left_arg_, game_value right_arg_);
+        static game_value _intercept_event(game_value_parameter left_arg_, game_value_parameter right_arg_);
         registered_sqf_function _intercept_event_function;
         static game_value _intercept_do_invoke_period();
         registered_sqf_function _intercept_do_invoke_period_function;
@@ -282,7 +282,7 @@ namespace intercept {
         @brief A collection of bound functions for processing event handlers in
         the client plugins.
         */
-        std::unordered_map < std::string, std::function<void(game_value &)> > _eventhandlers;
+        std::unordered_map <std::string, std::function<void(game_value_parameter)> > _eventhandlers;
 
         bool _patched;
         bool _attached;
