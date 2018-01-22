@@ -10,7 +10,7 @@ file(GLOB_RECURSE INTERCEPT_SOURCES *.h *.hpp *.c *.cpp)
 intercept_set_linker_options()
 
 set(INTERCEPT_NAME "intercept")
-set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}intercept")
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/intercept")
 
 file(GLOB INTERCEPT_SOURCES *.h *.hpp *.c *.cpp)
 
